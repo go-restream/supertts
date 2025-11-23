@@ -298,4 +298,8 @@ curl -X POST "http://localhost:8080/v1/audio/speech" \
 - **GPU Support**: GPU mode is not supported yet
 - **Known Issues**: On some platforms (especially macOS), there might be a mutex cleanup warning during exit. This is a known ONNX Runtime issue and doesn't affect functionality. The implementation uses `libc::_exit()` and `mem::forget()` to bypass this issue.
 
+## Official Project
+
+This implementation is based on the official supertonic project: https://github.com/supertone-inc/supertonic
+
 
