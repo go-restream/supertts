@@ -25,7 +25,9 @@ cargo build --release
 ```
 
 ###  Download ONNX models (NOTE: Make sure git-lfs is installed)
+```bash
 git clone https://huggingface.co/Supertone/supertonic assets
+```
 
 ## Basic Usage
 
