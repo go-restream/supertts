@@ -24,6 +24,9 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 cargo build --release
 ```
 
+###  Download ONNX models (NOTE: Make sure git-lfs is installed)
+git clone https://huggingface.co/Supertone/supertonic assets
+
 ## Basic Usage
 
 You can run the inference in two ways:
