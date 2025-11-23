@@ -1,0 +1,20 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8080
+  },
+  "tts": {
+    "onnx_dir": "assets/onnx",
+    "use_gpu": false,
+    "total_step": 5,
+    "speed": 1.05,
+    "default_voice_style": "assets/voice_styles/M1.json"
+  },
+  "auth": {
+    "require_api_key": false,
+    "api_key": null
+  },
+  "logging": {
+    "level": "info"
+  }
+}

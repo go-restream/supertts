@@ -1,0 +1,298 @@
+# Supertonic TTS ONNX Inference Openai Speech REST API
+
+This guide provides api server for running TTS inference using Rust.
+
+## 📰 Update News
+
+**2025.11.23** - Added OpenAI-compatible REST API server mode with `--openai` flag. Now you can run superTTS as a web service!
+
+**2025.11.19** - Added `--speed` parameter to control speech synthesis speed (default: 1.05, recommended range: 0.9-1.5).
+
+**2025.11.19** - Added automatic text chunking for long-form inference. Long texts are split into chunks and synthesized with natural pauses.
+
+## Installation
+
+This project uses [Cargo](https://doc.rust-lang.org/cargo/) for package management.
+
+### Install Rust (if not already installed)
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+### Build the project
+```bash
+cargo build --release
+```
+
+## Basic Usage
+
+You can run the inference in two ways:
+1. **Using cargo run** (builds if needed, then runs)
+2. **Direct binary execution** (faster if already built)
+
+### Example 1: Default Inference
+Run inference with default settings:
+```bash
+# Using cargo run
+cargo run --release --bin supertts
+
+# Or directly execute the built binary (faster)
+./target/release/supertts
+```
+
+This will use:
+- Voice style: `assets/voice_styles/M1.json`
+- Text: "This morning, I took a walk in the park, and the sound of the birds and the breeze was so pleasant that I stopped for a long time just to listen."
+- Output directory: `results/`
+- Total steps: 5
+- Number of generations: 4
+
+### Example 2: Batch Inference
+Process multiple voice styles and texts at once:
+```bash
+# Using cargo run
+cargo run --release --bin supertts -- \
+  --batch \
+  --voice-style assets/voice_styles/M1.json,assets/voice_styles/F1.json \
+  --text "The sun sets behind the mountains, painting the sky in shades of pink and orange.|The weather is beautiful and sunny outside. A gentle breeze makes the air feel fresh and pleasant."
+
+# Or using the binary directly
+./target/release/supertts \
+  --batch \
+  --voice-style assets/voice_styles/M1.json,assets/voice_styles/F1.json \
+  --text "The sun sets behind the mountains, painting the sky in shades of pink and orange.|The weather is beautiful and sunny outside. A gentle breeze makes the air feel fresh and pleasant."
+```
+
+This will:
+- Generate speech for 2 different voice-text pairs
+- Use male voice (M1.json) for the first text
+- Use female voice (F1.json) for the second text
+- Process both samples in a single batch
+
+### Example 3: High Quality Inference
+Increase denoising steps for better quality:
+```bash
+# Using cargo run
+cargo run --release --bin supertts -- \
+  --total-step 10 \
+  --voice-style assets/voice_styles/M1.json \
+  --text "Increasing the number of denoising steps improves the output's fidelity and overall quality."
+
+# Or using the binary directly
+./target/release/example_onnx \
+  --total-step 10 \
+  --voice-style assets/voice_styles/M1.json \
+  --text "Increasing the number of denoising steps improves the output's fidelity and overall quality."
+```
+
+This will:
+- Use 10 denoising steps instead of the default 5
+- Produce higher quality output at the cost of slower inference
+
+### Example 4: Long-Form Inference
+The system automatically chunks long texts into manageable segments, synthesizes each segment separately, and concatenates them with natural pauses (0.3 seconds by default) into a single audio file. This happens by default when you don't use the `--batch` flag:
+
+```bash
+# Using cargo run
+cargo run --release --bin supertts -- \
+  --voice-style assets/voice_styles/M1.json \
+  --text "This is a very long text that will be automatically split into multiple chunks. The system will process each chunk separately and then concatenate them together with natural pauses between segments. This ensures that even very long texts can be processed efficiently while maintaining natural speech flow and avoiding memory issues."
+
+# Or using the binary directly
+./target/release/supertts \
+  --voice-style assets/voice_styles/M1.json \
+  --text "This is a very long text that will be automatically split into multiple chunks. The system will process each chunk separately and then concatenate them together with natural pauses between segments. This ensures that even very long texts can be processed efficiently while maintaining natural speech flow and avoiding memory issues."
+```
+
+This will:
+- Automatically split the text into chunks based on paragraph and sentence boundaries
+- Synthesize each chunk separately
+- Add 0.3 seconds of silence between chunks for natural pauses
+- Concatenate all chunks into a single audio file
+
+**Note**: Automatic text chunking is disabled when using `--batch` mode. In batch mode, each text is processed as-is without chunking.
+
+## API Server Mode
+
+You can now run superTTS as an OpenAI-compatible REST API server! This enables integration with existing OpenAI TTS clients and web applications.
+
+### Example 5: Start API Server
+```bash
+# Start the API server with default settings
+cargo run --release --bin supertts -- --openai
+
+# Start with custom host and port
+cargo run --release --bin supertts -- --openai --host 127.0.0.1 --port 8080
+
+# Start with custom configuration file
+cargo run --release --bin supertts -- --openai --config my-config.json
+```
+
+This will start an HTTP server that provides:
+- **Health Check**: `GET /health` - Server health status
+- **Voice List**: `GET /voices` - List available voice styles and their status
+- **TTS Endpoint**: `POST /v1/audio/speech` - OpenAI-compatible text-to-speech
+
+### API Usage Examples
+
+#### Health Check
+```bash
+curl http://localhost:8080/health
+```
+
+#### List Available Voices
+```bash
+curl http://localhost:8080/voices
+```
+This returns a JSON response showing all available voice styles, their paths, and availability status.
+
+#### Text-to-Speech Request
+```bash
+curl -X POST "http://localhost:8080/v1/audio/speech" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "supertts",
+    "input": "Hello, this is a test of the superTTS API server!",
+    "voice": "F2"
+  }' \
+  --output speech.wav
+```
+
+#### Advanced TTS Request with Custom Speed
+```bash
+curl -X POST "http://localhost:8080/v1/audio/speech" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "supertts",
+    "input": "This is an example with custom speech speed.",
+    "voice": "f1",
+    "response_format": "wav",
+    "speed": 1.2
+  }' \
+  --output custom_speed.wav
+```
+
+#### API Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `model` | string | No | `"supertts"` | Model name. Supports `"supertts"`, `"tts-1"`, `"tts-1-hd"` (all use same engine) |
+| `input` | string | Yes | - | Text to synthesize (max ~4000 characters recommended) |
+| `voice` | string | No | `"f1"` | Voice style. See voice mapping section for options |
+| `response_format` | string | No | `"wav"` | Output format. Only `"wav"` is currently supported |
+| `speed` | float | No | `1.0` | Speech speed (0.9 to 1.5) |
+
+#### Using Different Voices
+The API has enhanced voice style support with intelligent file resolution:
+
+**Standard Voice Names:**
+- `m1`, `male1` → Maps to `assets/voice_styles/M1.json` (default male voice)
+- `f1`, `female1` → Maps to `assets/voice_styles/F1.json` (default female voice)
+- `m2`, `male2` → Maps to `assets/voice_styles/M2.json`
+- `f2`, `female2` → Maps to `assets/voice_styles/F2.json`
+
+**Advanced Features:**
+- **Direct File Path**: Use absolute or relative paths: `"voice": "custom_voices/my_voice.json"`
+- **Auto-detection**: System automatically finds JSON files in `assets/voice_styles/` directory
+- **Fallback Support**: If requested voice isn't found, system falls back to available voices
+- **Error Messages**: Detailed error messages include list of available voices
+
+```bash
+# Use standard voice names
+curl -X POST "http://localhost:8080/v1/audio/speech" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "This is synthesized using a female voice.",
+    "voice": "female"
+  }' \
+  --output female_voice.wav
+
+# Use direct file path
+curl -X POST "http://localhost:8080/v1/audio/speech" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "This uses a custom voice file.",
+    "voice": "custom_voices/narrator.json"
+  }' \
+  --output custom_voice.wav
+```
+
+### Configuration File
+
+Create a `config.json` file to customize the API server:
+
+```json
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8080
+  },
+  "tts": {
+    "onnx_dir": "assets/onnx",
+    "use_gpu": false,
+    "total_step": 5,
+    "speed": 1.05,
+    "default_voice_style": "assets/voice_styles/M1.json"
+  },
+  "auth": {
+    "require_api_key": false,
+    "api_key": null
+  },
+  "logging": {
+    "level": "info"
+  }
+}
+```
+
+#### Authentication (Optional)
+To enable API key authentication, update your config.json:
+
+```json
+{
+  "auth": {
+    "require_api_key": true,
+    "api_key": "your-secret-api-key-here"
+  }
+}
+```
+
+Then include the API key in requests:
+```bash
+curl -X POST "http://localhost:8080/v1/audio/speech" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-secret-api-key-here" \
+  -d '{
+    "input": "This request uses authentication.",
+    "voice": "F2"
+  }' \
+  --output authenticated.wav
+```
+
+## Available Arguments
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| **API Server** | | | |
+| `--openai` | flag | False | Start OpenAI-compatible API server mode |
+| `--host` | str | `0.0.0.0` | API server host (only used with `--openai`) |
+| `--port` | int | 8080 | API server port (only used with `--openai`) |
+| `--config` | str | `config.json` | Configuration file for API server |
+| **CLI Mode** | | | |
+| `--use-gpu` | flag | False | Use GPU for inference (default: CPU) |
+| `--onnx-dir` | str | `assets/onnx` | Path to ONNX model directory |
+| `--total-step` | int | 5 | Number of denoising steps (higher = better quality, slower) |
+| `--n-test` | int | 4 | Number of times to generate each sample |
+| `--voice-style` | str+ | `assets/voice_styles/M1.json` | Voice style file path(s) |
+| `--text` | str+ | (long default text) | Text(s) to synthesize |
+| `--save-dir` | str | `results` | Output directory |
+| `--batch` | flag | False | Enable batch mode (multiple text-style pairs, disables automatic chunking) |
+
+## Notes
+
+- **Batch Processing**: When using `--batch`, the number of `--voice-style` files must match the number of `--text` entries
+- **Automatic Chunking**: Without `--batch`, long texts are automatically split and concatenated with 0.3s pauses
+- **Quality vs Speed**: Higher `--total-step` values produce better quality but take longer
+- **GPU Support**: GPU mode is not supported yet
+- **Known Issues**: On some platforms (especially macOS), there might be a mutex cleanup warning during exit. This is a known ONNX Runtime issue and doesn't affect functionality. The implementation uses `libc::_exit()` and `mem::forget()` to bypass this issue.
+
+
