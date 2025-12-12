@@ -1,6 +1,7 @@
 # Rust build artifacts
 /target/
 Cargo.lock
+.cargo
 
 # Output directory
 /results/

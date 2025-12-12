@@ -1,5 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
+use tracing_subscriber::{Layer};
+use tracing_subscriber::{filter::filter_fn,prelude::*};
 use std::path::PathBuf;
 use std::fs;
 use std::mem;
@@ -73,16 +75,26 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<()> {
     println!("=== TTS Inference with ONNX Runtime (Rust) ===\n");
-
-    // --- 1. Parse arguments --- //
     let args = Args::parse();
 
-    // Check if we should start API server mode
     if args.openai {
         println!("Starting OpenAI-compatible API server mode...");
 
-        // Initialize tracing
-        tracing_subscriber::fmt::init();
+        let filter = filter_fn(|metadata| {
+            if metadata.target() == "ort::logging" {
+                return metadata.level() <= &tracing::Level::WARN;
+            }
+            metadata.level() <= &tracing::Level::INFO
+        });
+
+        tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+            .with_writer(std::io::stdout)
+            .with_ansi(true)
+            .with_filter(filter)
+        )
+        .init();
 
         // Load configuration
         let mut server_config = ServerConfig::load_or_default(&args.config);
@@ -136,13 +148,10 @@ async fn main() -> Result<()> {
 
     let bsz = voice_style_paths.len();
 
-    // --- 2. Load TTS components --- //
     let mut text_to_speech = load_text_to_speech(&args.onnx_dir.as_deref().unwrap_or("assets/onnx"), args.use_gpu.unwrap_or(false))?;
 
-    // --- 3. Load voice styles --- //
     let style = load_voice_style(voice_style_paths, true)?;
 
-    // --- 4. Synthesize speech --- //
     fs::create_dir_all(save_dir)?;
 
     for n in 0..n_test {
@@ -181,8 +190,6 @@ async fn main() -> Result<()> {
     }
 
     println!("\n=== Synthesis completed successfully! ===");
-
-    // Prevent ONNX Runtime sessions from being dropped, which causes mutex cleanup issues
     mem::forget(text_to_speech);
 
     // Use _exit to bypass all cleanup handlers and avoid ONNX Runtime mutex issues on macOS

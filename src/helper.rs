@@ -5,6 +5,7 @@
 use ndarray::{Array, Array3};
 use serde::{Deserialize, Serialize};
 use serde_json;
+// use tracing::Event;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
@@ -466,8 +467,7 @@ pub fn sanitize_filename(text: &str, max_len: usize) -> String {
 // ============================================================================
 
 use ort::{
-    session::Session,
-    value::Value,
+ session::Session, value::Value
 };
 
 pub struct Style {
@@ -743,7 +743,7 @@ pub fn load_text_to_speech(onnx_dir: &str, use_gpu: bool) -> Result<TextToSpeech
     let dp_path = format!("{}/duration_predictor.onnx", onnx_dir);
     let text_enc_path = format!("{}/text_encoder.onnx", onnx_dir);
     let vector_est_path = format!("{}/vector_estimator.onnx", onnx_dir);
-    let vocoder_path = format!("{}/vocoder.onnx", onnx_dir);
+    let vocoder_path = format!("{}/vocoder.onnx", onnx_dir);     
 
     let dp_ort = Session::builder()?
         .commit_from_file(&dp_path)?;
