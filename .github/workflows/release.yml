@@ -1,0 +1,184 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x86_64-unknown-linux-gnu
+            artifact_name: supertts
+            asset_name: supertts-${{ github.ref_name }}-x86_64-linux.tar.gz
+          - os: macos-latest
+            arch: x86_64-apple-darwin
+            artifact_name: supertts
+            asset_name: supertts-${{ github.ref_name }}-x86_64-macos.tar.gz
+          - os: macos-latest
+            arch: aarch64-apple-darwin
+            artifact_name: supertts
+            asset_name: supertts-${{ github.ref_name }}-aarch64-macos.tar.gz
+          - os: windows-latest
+            arch: x86_64-pc-windows-gnu
+            artifact_name: supertts.exe
+            asset_name: supertts-${{ github.ref_name }}-x86_64-windows.zip
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.arch }}
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev
+
+      - name: Install Windows dependencies
+        if: matrix.os == 'windows-latest'
+        run: |
+          rustup target add ${{ matrix.arch }}
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.arch }}
+
+      - name: Strip binary (Unix)
+        if: runner.os != 'Windows'
+        run: strip target/${{ matrix.arch }}/release/${{ matrix.artifact_name }}
+
+      - name: Prepare artifacts (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p release
+          cp target/${{ matrix.arch }}/release/${{ matrix.artifact_name }} release/
+          cp README.md release/ 2>/dev/null || echo "README.md not found, skipping"
+          cp LICENSE release/ 2>/dev/null || echo "LICENSE not found, skipping"
+          tar -C release -czf ${{ matrix.asset_name }} .
+
+      - name: Prepare artifacts (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir release
+          Copy-Item target/${{ matrix.arch }}/release/${{ matrix.artifact_name }} release/
+          if (Test-Path README.md) { Copy-Item README.md release/ }
+          if (Test-Path LICENSE) { Copy-Item LICENSE release/ }
+          Compress-Archive -Path release\* -DestinationPath ${{ matrix.asset_name }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifact-${{ matrix.os }}-${{ matrix.arch }}
+          path: ${{ matrix.asset_name }}
+          retention-days: 1
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: artifact-*
+          merge-multiple: true
+          path: ./artifacts
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd artifacts
+          sha256sum * > ../supertts-${{ github.ref_name }}-sha256.txt
+
+      - name: Extract changelog
+        id: changelog
+        run: |
+          # Get previous tag
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+          if [ -z "$PREVIOUS_TAG" ]; then
+            # If no previous tag, get all commits
+            CHANGELOG=$(git log --pretty=format:"- %s" --no-merges)
+          else
+            # Get commits between previous tag and current tag
+            CHANGELOG=$(git log --pretty=format:"- %s" --no-merges $PREVIOUS_TAG..HEAD)
+          fi
+
+          # Add model download instructions
+          CHANGELOG="$CHANGELOG
+
+          ## Model Setup
+          Before running supertts, you need to download the ONNX models:
+
+          \`\`\`bash
+          # Clone the models repository
+          git clone https://huggingface.co/Supertone/supertonic assets
+          \`\`\`
+
+          The models are approximately 1GB in size and need to be downloaded separately from the binary."
+
+          # Save changelog to file for multiline output
+          echo "$CHANGELOG" > changelog.txt
+
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/*
+            supertts-${{ github.ref_name }}-sha256.txt
+          body: |
+            # supertts ${{ github.ref_name }}
+
+            ${{ steps.changelog.outputs.changelog }}
+
+            ## Installation
+
+            1. Download the appropriate binary for your platform from the assets below
+            2. Extract the archive
+            3. Download ONNX models: `git clone https://huggingface.co/Supertone/supertonic assets`
+            4. Run: `./supertts --help`
+
+            ## Verification
+
+            Verify the integrity of downloaded files using the provided SHA256 checksums:
+
+            ```bash
+            sha256sum -c supertts-${{ github.ref_name }}-sha256.txt
+            ```
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
