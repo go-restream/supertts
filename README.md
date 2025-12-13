@@ -12,7 +12,9 @@ This guide provides api server for running TTS inference using Rust.
 
 **2025.11.19** - Added automatic text chunking for long-form inference. Long texts are split into chunks and synthesized with natural pauses.
 
-## Installation
+---
+
+## 🚀 Installation
 
 This project uses [Cargo](https://doc.rust-lang.org/cargo/) for package management.
 
@@ -35,6 +37,8 @@ git clone https://huggingface.co/Supertone/supertonic assets
 # or 
 make download
 ```
+
+---
 
 ## Basic Usage
 
@@ -127,7 +131,9 @@ This will:
 
 **Note**: Automatic text chunking is disabled when using `--batch` mode. In batch mode, each text is processed as-is without chunking.
 
-## API Server Mode
+---
+
+## 🌐 API Server Mode
 
 You can now run superTTS as an OpenAI-compatible REST API server! This enables integration with existing OpenAI TTS clients and web applications.
 
@@ -148,6 +154,8 @@ This will start an HTTP server that provides:
 - **Health Check**: `GET /health` - Server health status and engine pool statistics
 - **Voice List**: `GET /voices` - List available voice styles and their status
 - **TTS Endpoint**: `POST /v1/audio/speech` - OpenAI-compatible text-to-speech
+
+---
 
 ### API Usage Examples
 
@@ -252,6 +260,8 @@ curl -X POST "http://localhost:8080/v1/audio/speech" \
   --output custom_voice.wav
 ```
 
+---
+
 ### Configuration File
 
 Create a `config.json` file to customize the API server:
@@ -312,7 +322,9 @@ The TTS engine pool improves performance by maintaining multiple preloaded TTS e
 **Memory Usage:**
 Each engine in the pool consumes approximately 300m of RAM. Plan your pool size accordingly.
 
-## Performance Report
+---
+
+## 📊 Performance Report
 
 The TTS engine pool has been extensively tested for performance improvements. Here are the key results:
 
@@ -374,6 +386,7 @@ curl -X POST "http://localhost:8080/v1/audio/speech" \
   --output authenticated.wav
 ```
 
+---
 ## Available Arguments
 
 | Argument | Type | Default | Description |
@@ -400,6 +413,8 @@ curl -X POST "http://localhost:8080/v1/audio/speech" \
 - **Quality vs Speed**: Higher `--total-step` values produce better quality but take longer
 - **GPU Support**: GPU mode is not supported yet
 - **Known Issues**: On some platforms (especially macOS), there might be a mutex cleanup warning during exit. This is a known ONNX Runtime issue and doesn't affect functionality. The implementation uses `libc::_exit()` and `mem::forget()` to bypass this issue.
+
+--- 
 
 ## Official Project
 

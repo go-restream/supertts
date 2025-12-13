@@ -30,11 +30,6 @@ jobs:
             arch: aarch64-apple-darwin
             artifact_name: supertts
             asset_name: supertts-${{ github.ref_name }}-aarch64-macos.tar.gz
-          - os: windows-latest
-            arch: x86_64-pc-windows-gnu
-            artifact_name: supertts.exe
-            asset_name: supertts-${{ github.ref_name }}-x86_64-windows.zip
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -59,35 +54,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pkg-config libssl-dev
 
-      - name: Install Windows dependencies
-        if: matrix.os == 'windows-latest'
-        run: |
-          rustup target add ${{ matrix.arch }}
-
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.arch }}
 
-      - name: Strip binary (Unix)
-        if: runner.os != 'Windows'
+      - name: Strip binary
         run: strip target/${{ matrix.arch }}/release/${{ matrix.artifact_name }}
 
-      - name: Prepare artifacts (Unix)
-        if: runner.os != 'Windows'
+      - name: Prepare artifacts
         run: |
           mkdir -p release
           cp target/${{ matrix.arch }}/release/${{ matrix.artifact_name }} release/
           cp README.md release/ 2>/dev/null || echo "README.md not found, skipping"
           cp LICENSE release/ 2>/dev/null || echo "LICENSE not found, skipping"
           tar -C release -czf ${{ matrix.asset_name }} .
-
-      - name: Prepare artifacts (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          mkdir release
-          Copy-Item target/${{ matrix.arch }}/release/${{ matrix.artifact_name }} release/
-          if (Test-Path README.md) { Copy-Item README.md release/ }
-          if (Test-Path LICENSE) { Copy-Item LICENSE release/ }
-          Compress-Archive -Path release\* -DestinationPath ${{ matrix.asset_name }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -143,7 +122,7 @@ jobs:
           git clone https://huggingface.co/Supertone/supertonic assets
           \`\`\`
 
-          The models are approximately 1GB in size and need to be downloaded separately from the binary."
+          The models are approximately 300M in size and need to be downloaded separately from the binary."
 
           # Save changelog to file for multiline output
           echo "$CHANGELOG" > changelog.txt
@@ -181,4 +160,3 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          
