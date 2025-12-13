@@ -4,7 +4,7 @@ This guide provides api server for running TTS inference using Rust.
 
 ## 📰 Update News
 
-**2025.12.13** - Implemented TTS engine pool for improved performance and concurrent request handling. Added configurable pool size, engine warmup, and voice style caching.[complete performance report](docs/PERFORMANCE_REPORT.md)
+**2025.12.13** - Implemented TTS engine pool for improved performance and concurrent request handling. Added configurable pool size, engine warmup, and voice style caching.[complete performance report](docs/performance_report.md)
 
 **2025.11.23** - Added OpenAI-compatible REST API server mode with `--openai` flag. Now you can run superTTS as a web service!
 
@@ -348,7 +348,7 @@ The TTS engine pool has been extensively tested for performance improvements. He
 | 5 concurrent | **86.7%** | 30 | 26 |
 | 10 concurrent | **93.3%** | 60 | 56 |
 
-For detailed performance analysis, test methodology, and additional benchmarks, see the [complete performance report](docs/PERFORMANCE_REPORT.md).
+For detailed performance analysis, test methodology, and additional benchmarks, see the [complete performance report](docs/performance_report.md).
 
 #### Authentication (Optional)
 To enable API key authentication, update your config.json:
