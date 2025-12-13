@@ -1,7 +1,5 @@
-// ============================================================================
-// TTS Helper Module - All utility functions and structures
-// ============================================================================
 
+// TTS Helper Module - All utility functions and structures
 use ndarray::{Array, Array3};
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -14,10 +12,6 @@ use unicode_normalization::UnicodeNormalization;
 use hound::{WavWriter, WavSpec, SampleFormat};
 use rand_distr::{Distribution, Normal};
 use regex::Regex;
-
-// ============================================================================
-// Configuration Structures
-// ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -46,10 +40,6 @@ pub fn load_cfgs<P: AsRef<Path>>(onnx_dir: P) -> Result<Config> {
     Ok(cfgs)
 }
 
-// ============================================================================
-// Voice Style Data Structure
-// ============================================================================
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VoiceStyleData {
     pub style_ttl: StyleComponent,
@@ -63,10 +53,6 @@ pub struct StyleComponent {
     #[serde(rename = "type")]
     pub dtype: String,
 }
-
-// ============================================================================
-// Unicode Text Processor
-// ============================================================================
 
 pub struct UnicodeProcessor {
     indexer: Vec<i64>,
@@ -192,10 +178,6 @@ pub fn sample_noisy_latent(
     (noisy_latent, latent_mask)
 }
 
-// ============================================================================
-// WAV File I/O
-// ============================================================================
-
 pub fn write_wav_file<P: AsRef<Path>>(
     filename: P,
     audio_data: &[f32],
@@ -246,10 +228,6 @@ pub fn write_wav_to_buffer(
     writer.finalize()?;
     Ok(())
 }
-
-// ============================================================================
-// Text Chunking
-// ============================================================================
 
 const MAX_CHUNK_LENGTH: usize = 300;
 
@@ -428,16 +406,13 @@ fn split_sentences(text: &str) -> Vec<String> {
     }
 }
 
-// ============================================================================
 // Utility Functions
-// ============================================================================
-
 pub fn timer<F, T>(name: &str, f: F) -> Result<T>
 where
     F: FnOnce() -> Result<T>,
 {
     let start = std::time::Instant::now();
-    println!("{}...", name);
+    // println!("{}...", name);
     let result = f()?;
     let elapsed = start.elapsed().as_secs_f64();
     println!("  -> {} completed in {:.2} sec", name, elapsed);
@@ -462,14 +437,12 @@ pub fn sanitize_filename(text: &str, max_len: usize) -> String {
         .collect()
 }
 
-// ============================================================================
 // ONNX Runtime Integration
-// ============================================================================
-
 use ort::{
  session::Session, value::Value
 };
 
+#[derive(Clone, Debug)]
 pub struct Style {
     pub ttl: Array3<f32>,
     pub dp: Array3<f32>,
@@ -659,10 +632,6 @@ impl TextToSpeech {
     }
 }
 
-// ============================================================================
-// Component Loading Functions
-// ============================================================================
-
 /// Load voice style from JSON files
 pub fn load_voice_style(voice_style_paths: &[String], verbose: bool) -> Result<Style> {
     let bsz = voice_style_paths.len();
@@ -736,7 +705,7 @@ pub fn load_text_to_speech(onnx_dir: &str, use_gpu: bool) -> Result<TextToSpeech
     if use_gpu {
         anyhow::bail!("GPU mode is not supported yet");
     }
-    println!("Using CPU for inference\n");
+    // println!("Using CPU for inference\n");
 
     let cfgs = load_cfgs(onnx_dir)?;
 

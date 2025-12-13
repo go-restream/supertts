@@ -4,6 +4,8 @@ This guide provides api server for running TTS inference using Rust.
 
 ## 📰 Update News
 
+**2025.12.13** - Implemented TTS engine pool for improved performance and concurrent request handling. Added configurable pool size, engine warmup, and voice style caching.[complete performance report](docs/PERFORMANCE_REPORT.md)
+
 **2025.11.23** - Added OpenAI-compatible REST API server mode with `--openai` flag. Now you can run superTTS as a web service!
 
 **2025.11.19** - Added `--speed` parameter to control speech synthesis speed (default: 1.05, recommended range: 0.9-1.5).
@@ -22,11 +24,16 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ### Build the project
 ```bash
 cargo build --release
+# or 
+make build 
 ```
 
 ###  Download ONNX models (NOTE: Make sure git-lfs is installed)
 ```bash
 git clone https://huggingface.co/Supertone/supertonic assets
+
+# or 
+make download
 ```
 
 ## Basic Usage
@@ -43,6 +50,9 @@ cargo run --release --bin supertts
 
 # Or directly execute the built binary (faster)
 ./target/release/supertts
+
+# or openai http api
+make run 
 ```
 
 This will use:
@@ -123,6 +133,7 @@ You can now run superTTS as an OpenAI-compatible REST API server! This enables i
 
 ### Example 5: Start API Server
 ```bash
+make run 
 # Start the API server with default settings
 cargo run --release --bin supertts -- --openai
 
@@ -134,7 +145,7 @@ cargo run --release --bin supertts -- --openai --config my-config.json
 ```
 
 This will start an HTTP server that provides:
-- **Health Check**: `GET /health` - Server health status
+- **Health Check**: `GET /health` - Server health status and engine pool statistics
 - **Voice List**: `GET /voices` - List available voice styles and their status
 - **TTS Endpoint**: `POST /v1/audio/speech` - OpenAI-compatible text-to-speech
 
@@ -143,6 +154,25 @@ This will start an HTTP server that provides:
 #### Health Check
 ```bash
 curl http://localhost:8080/health
+```
+This returns a JSON response with server status, version, model loaded status, and engine pool statistics (if engine pool is enabled):
+```json
+{
+  "status": "healthy",
+  "timestamp": "2025-12-13T12:00:00Z",
+  "version": "1.0.0",
+  "model_loaded": true,
+  "pool_stats": {
+    "total_engines": 2,
+    "available_permits": 2,
+    "cached_voice_styles": 3,
+    "total_checkouts": 150,
+    "cache_hits": 120,
+    "cache_misses": 30,
+    "cache_hit_rate": 80.0,
+    "engine_replacements": 0
+  }
+}
 ```
 
 #### List Available Voices
@@ -237,7 +267,11 @@ Create a `config.json` file to customize the API server:
     "use_gpu": false,
     "total_step": 5,
     "speed": 1.05,
-    "default_voice_style": "assets/voice_styles/M1.json"
+    "default_voice_style": "assets/voice_styles/M1.json",
+    "engine_pool_size": 2,
+    "warmup_on_startup": true,
+    "engine_checkout_timeout_ms": 5000,
+    "voice_style_cache_size": 10
   },
   "auth": {
     "require_api_key": false,
@@ -248,6 +282,73 @@ Create a `config.json` file to customize the API server:
   }
 }
 ```
+
+#### Engine Pool Configuration
+
+The TTS engine pool improves performance by maintaining multiple preloaded TTS engines and caching voice styles. This eliminates model loading latency and enables concurrent request processing.
+
+**Engine Pool Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `engine_pool_size` | int | 1 | Number of TTS engines to keep in the pool (1-10) |
+| `warmup_on_startup` | bool | false | Preload all engines on server startup |
+| `engine_checkout_timeout_ms` | int | 5000 | Timeout for engine checkout in milliseconds |
+| `voice_style_cache_size` | int | 10 | Maximum number of voice styles to cache in memory |
+
+**Performance Benefits:**
+
+- **Eliminates Loading Latency**: Models are preloaded and reused (saves 1-3 seconds per request)
+- **Enables Concurrency**: Multiple requests can be processed simultaneously
+- **Voice Style Caching**: Frequently used voice styles are cached for faster access
+- **Configurable Pool Size**: Adjust based on your server's memory and concurrent needs
+
+**Recommended Settings:**
+
+- **Low Traffic**: `engine_pool_size: 1`, `warmup_on_startup: true`
+- **Medium Traffic**: `engine_pool_size: 2-3`, `warmup_on_startup: true`
+- **High Traffic**: `engine_pool_size: 4-6`, `warmup_on_startup: true`
+
+**Memory Usage:**
+Each engine in the pool consumes approximately 300m of RAM. Plan your pool size accordingly.
+
+## Performance Report
+
+The TTS engine pool has been extensively tested for performance improvements. Here are the key results:
+
+### RTF (Real-Time Factor) Performance
+
+| Metric | Value | Description |
+|--------|-------|-------------|
+| **Average RTF** | **0.033** | 32.9x faster than real-time |
+| Median RTF | 0.033 | Consistent performance |
+| Min RTF | 0.021 | Fastest: 47.4x real-time |
+| Max RTF | 0.050 | Slowest: 20.1x real-time |
+| P95 RTF | 0.048 | 95% of requests < 0.048 RTF |
+
+### Response Time Improvements
+
+| Metric | Without Pool | With Engine Pool | Improvement |
+|--------|--------------|------------------|-------------|
+| Average Response | 1-3 seconds | **0.431s** | **85-95%** |
+| Fastest Response | 1-2 seconds | **0.18s** | **90%** |
+| 95th Percentile | 3-4 seconds | **0.48s** | **88%** |
+
+### Concurrency Performance
+
+| Test | Concurrency | Avg Response | RPS | Success Rate |
+|------|-------------|--------------|-----|--------------|
+| 5 concurrent | 5 | 0.431s | 2.32 | 100% |
+| 10 concurrent | 10 | 0.851s | 1.17 | 100% |
+
+### Cache Performance
+
+| Test | Cache Hit Rate | Total Checkouts | Cache Hits |
+|------|----------------|-----------------|------------|
+| 5 concurrent | **86.7%** | 30 | 26 |
+| 10 concurrent | **93.3%** | 60 | 56 |
+
+For detailed performance analysis, test methodology, and additional benchmarks, see the [complete performance report](docs/PERFORMANCE_REPORT.md).
 
 #### Authentication (Optional)
 To enable API key authentication, update your config.json:

@@ -9,6 +9,7 @@ use tracing::info;
 
 mod helper;
 mod api_server;
+mod engine_pool;
 
 use helper::{
     load_text_to_speech, load_voice_style, timer, write_wav_file, sanitize_filename,

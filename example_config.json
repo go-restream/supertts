@@ -8,7 +8,11 @@
     "use_gpu": false,
     "total_step": 5,
     "speed": 1.05,
-    "default_voice_style": "assets/voice_styles/M1.json"
+    "default_voice_style": "assets/voice_styles/M1.json",
+    "engine_pool_size": 2,
+    "warmup_on_startup": true,
+    "engine_checkout_timeout_ms": 5000,
+    "voice_style_cache_size": 10
   },
   "auth": {
     "require_api_key": false,

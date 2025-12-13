@@ -1,6 +1,3 @@
-// ============================================================================
-// API Server Module - OpenAI Compatible TTS API
-// ============================================================================
 
 use anyhow::{anyhow, Result};
 use axum::{
@@ -21,10 +18,6 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::helper::{load_text_to_speech, load_voice_style, timer};
-
-// ============================================================================
-// Configuration Structures
-// ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
@@ -47,6 +40,14 @@ pub struct TtsSettings {
     pub total_step: usize,
     pub speed: f32,
     pub default_voice_style: String,
+    #[serde(default = "default_engine_pool_size")]
+    pub engine_pool_size: usize,
+    #[serde(default = "default_warmup_on_startup")]
+    pub warmup_on_startup: bool,
+    #[serde(default = "default_engine_checkout_timeout_ms")]
+    pub engine_checkout_timeout_ms: u64,
+    #[serde(default = "default_voice_style_cache_size")]
+    pub voice_style_cache_size: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,6 +60,12 @@ pub struct AuthSettings {
 pub struct LoggingSettings {
     pub level: String,
 }
+
+// Default value functions for serde
+fn default_engine_pool_size() -> usize { 1 }
+fn default_warmup_on_startup() -> bool { false }
+fn default_engine_checkout_timeout_ms() -> u64 { 5000 }
+fn default_voice_style_cache_size() -> usize { 10 }
 
 impl Default for ServerConfig {
     fn default() -> Self {
@@ -73,6 +80,10 @@ impl Default for ServerConfig {
                 total_step: 5,
                 speed: 1.05,
                 default_voice_style: "assets/voice_styles/M1.json".to_string(),
+                engine_pool_size: 1,
+                warmup_on_startup: false,
+                engine_checkout_timeout_ms: 5000,
+                voice_style_cache_size: 10,
             },
             auth: AuthSettings {
                 require_api_key: false,
@@ -106,10 +117,6 @@ impl ServerConfig {
     }
 }
 
-// ============================================================================
-// OpenAI API Request/Response Structures
-// ============================================================================
-
 #[derive(Debug, Deserialize)]
 pub struct TtsRequest {
     /// Text to synthesize
@@ -142,23 +149,18 @@ pub struct HealthResponse {
     pub timestamp: String,
     pub version: String,
     pub model_loaded: bool,
+    pub pool_stats: Option<crate::engine_pool::PoolStatsResponse>,
 }
-
-// ============================================================================
-// Application State
-// ============================================================================
 
 #[derive(Clone)]
 pub struct AppState {
     pub config: ServerConfig,
-    pub text_to_speech: Arc<Mutex<Option<crate::helper::TextToSpeech>>>,
+    pub text_to_speech: Arc<Mutex<Option<crate::helper::TextToSpeech>>>, // Kept for backward compatibility
     pub default_voice_style: String,
+    pub engine_pool: Option<Arc<crate::engine_pool::TTSEnginePool>>,
 }
 
-// ============================================================================
 // Voice Style Resolution Helper
-// ============================================================================
-
 fn resolve_voice_style_path(voice_name: Option<&str>, default_path: &str) -> Result<String> {
     // If no voice name provided, use default
     let voice_name = match voice_name {
@@ -284,11 +286,7 @@ fn resolve_voice_style_path(voice_name: Option<&str>, default_path: &str) -> Res
         available_voices
     ))
 }
-
-// ============================================================================
 // Authentication Middleware
-// ============================================================================
-
 fn check_api_key(headers: &HeaderMap, config: &AuthSettings) -> Result<(), StatusCode> {
     if !config.require_api_key {
         return Ok(());
@@ -306,17 +304,20 @@ fn check_api_key(headers: &HeaderMap, config: &AuthSettings) -> Result<(), Statu
         _ => Ok(()),
     }
 }
+pub async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
+    // Get pool stats if pool is available
+    let pool_stats = if let Some(pool) = &state.engine_pool {
+        Some(pool.get_stats().await)
+    } else {
+        None
+    };
 
-// ============================================================================
-// API Handlers
-// ============================================================================
-
-pub async fn health_check() -> impl IntoResponse {
     let response = HealthResponse {
         status: "healthy".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         model_loaded: true, // We'll assume model is loaded if server is running
+        pool_stats,
     };
 
     Json(response)
@@ -478,72 +479,154 @@ pub async fn tts_speech(
         }
     };
 
-    // Get or load TTS engine
-    let mut tts_guard = state.text_to_speech.lock().unwrap();
-    let text_to_speech = match tts_guard.as_mut() {
-        Some(tts) => tts,
-        None => {
-            info!("[{}] Loading TTS engine...", request_id);
-            match load_text_to_speech(&state.config.tts.onnx_dir, state.config.tts.use_gpu) {
-                Ok(tts) => {
-                    *tts_guard = Some(tts);
-                    tts_guard.as_mut().unwrap()
-                }
-                Err(e) => {
-                    error!("[{}] Failed to load TTS engine: {}", request_id, e);
-                    let error = TtsError {
-                        error: TtsErrorDetail {
-                            message: format!("Failed to load TTS engine: {}", e),
-                            type_: "internal_server_error".to_string(),
-                            code: Some("tts_load_failed".to_string()),
-                        },
-                    };
-                    return Ok((StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response());
+    // Use engine pool if available, otherwise fallback to single engine
+    let (wav_data, sample_rate) = if let Some(pool) = &state.engine_pool {
+        // Use engine pool
+        info!("[{}] Using engine pool for TTS generation", request_id);
+
+        let engine_handle = match pool.checkout().await {
+            Ok(handle) => handle,
+            Err(e) => {
+                error!("[{}] Failed to checkout engine: {}", request_id, e);
+                let error = TtsError {
+                    error: TtsErrorDetail {
+                        message: format!("Engine pool exhausted: {}", e),
+                        type_: "service_unavailable".to_string(),
+                        code: Some("pool_exhausted".to_string()),
+                    },
+                };
+                return Ok((StatusCode::SERVICE_UNAVAILABLE, Json(error)).into_response());
+            }
+        };
+
+        // Load voice style using pool cache
+        let style = match engine_handle.get_voice_style(&voice_style_path).await {
+            Ok(style) => style,
+            Err(e) => {
+                error!("[{}] Failed to load voice style {}: {}", request_id, voice_style_path, e);
+                let error = TtsError {
+                    error: TtsErrorDetail {
+                        message: format!("Failed to load voice style: {}", e),
+                        type_: "invalid_request_error".to_string(),
+                        code: Some("voice_style_load_failed".to_string()),
+                    },
+                };
+                return Ok((StatusCode::BAD_REQUEST, Json(error)).into_response());
+            }
+        };
+
+        // Get the engine and generate speech
+        let speed = request.speed.unwrap_or(state.config.tts.speed);
+        let total_step = state.config.tts.total_step;
+
+        let result = match engine_handle.engine().await {
+            Ok(text_to_speech_mutex) => {
+                let mut text_to_speech = text_to_speech_mutex.lock().await;
+                let sample_rate = text_to_speech.sample_rate;
+
+                match timer("TTS Generation", || {
+                    text_to_speech.call(&request.input, &style, total_step, speed, 0.3)
+                }) {
+                    Ok(result) => (result.0, sample_rate as f32),
+                    Err(e) => {
+                        error!("[{}] TTS generation failed: {}", request_id, e);
+                        let error = TtsError {
+                            error: TtsErrorDetail {
+                                message: format!("TTS generation failed: {}", e),
+                                type_: "internal_server_error".to_string(),
+                                code: Some("tts_generation_failed".to_string()),
+                            },
+                        };
+                        return Ok((StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response());
+                    }
                 }
             }
-        }
-    };
+            Err(e) => {
+                error!("[{}] Failed to get engine: {}", request_id, e);
+                let error = TtsError {
+                    error: TtsErrorDetail {
+                        message: format!("Failed to get engine: {}", e),
+                        type_: "internal_server_error".to_string(),
+                        code: Some("engine_access_failed".to_string()),
+                    },
+                };
+                return Ok((StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response());
+            }
+        };
 
-    // Load voice style (simplified approach - load on demand without caching)
-    let style = match load_voice_style(&[voice_style_path.to_string()], false) {
-        Ok(style) => style,
-        Err(e) => {
-            error!("[{}] Failed to load voice style {}: {}", request_id, voice_style_path, e);
-            let error = TtsError {
-                error: TtsErrorDetail {
-                    message: format!("Failed to load voice style: {}", e),
-                    type_: "invalid_request_error".to_string(),
-                    code: Some("voice_style_load_failed".to_string()),
-                },
-            };
-            return Ok((StatusCode::BAD_REQUEST, Json(error)).into_response());
-        }
-    };
+        // Engine handle is automatically dropped and returned to pool
+        result
+    } else {
+        // Fallback to single engine (backward compatibility)
+        info!("[{}] Using single engine (fallback)", request_id);
 
-    // Generate speech
-    let speed = request.speed.unwrap_or(state.config.tts.speed);
-    let total_step = state.config.tts.total_step;
+        let mut tts_guard = state.text_to_speech.lock().unwrap();
+        let text_to_speech = match tts_guard.as_mut() {
+            Some(tts) => tts,
+            None => {
+                info!("[{}] Loading TTS engine...", request_id);
+                match load_text_to_speech(&state.config.tts.onnx_dir, state.config.tts.use_gpu) {
+                    Ok(tts) => {
+                        *tts_guard = Some(tts);
+                        tts_guard.as_mut().unwrap()
+                    }
+                    Err(e) => {
+                        error!("[{}] Failed to load TTS engine: {}", request_id, e);
+                        let error = TtsError {
+                            error: TtsErrorDetail {
+                                message: format!("Failed to load TTS engine: {}", e),
+                                type_: "internal_server_error".to_string(),
+                                code: Some("tts_load_failed".to_string()),
+                            },
+                        };
+                        return Ok((StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response());
+                    }
+                }
+            }
+        };
 
-    let (wav_data, _) = match timer("TTS Generation", || {
-        text_to_speech.call(&request.input, &style, total_step, speed, 0.3)
-    }) {
-        Ok(result) => result,
-        Err(e) => {
-            error!("[{}] TTS generation failed: {}", request_id, e);
-            let error = TtsError {
-                error: TtsErrorDetail {
-                    message: format!("TTS generation failed: {}", e),
-                    type_: "internal_server_error".to_string(),
-                    code: Some("tts_generation_failed".to_string()),
-                },
-            };
-            return Ok((StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response());
+        // Load voice style (simplified approach - load on demand without caching)
+        let style = match load_voice_style(&[voice_style_path.to_string()], false) {
+            Ok(style) => style,
+            Err(e) => {
+                error!("[{}] Failed to load voice style {}: {}", request_id, voice_style_path, e);
+                let error = TtsError {
+                    error: TtsErrorDetail {
+                        message: format!("Failed to load voice style: {}", e),
+                        type_: "invalid_request_error".to_string(),
+                        code: Some("voice_style_load_failed".to_string()),
+                    },
+                };
+                return Ok((StatusCode::BAD_REQUEST, Json(error)).into_response());
+            }
+        };
+
+        // Generate speech
+        let speed = request.speed.unwrap_or(state.config.tts.speed);
+        let total_step = state.config.tts.total_step;
+
+        let sample_rate = text_to_speech.sample_rate;
+        match timer("TTS Generation", || {
+            text_to_speech.call(&request.input, &style, total_step, speed, 0.3)
+        }) {
+            Ok(result) => (result.0, sample_rate as f32),
+            Err(e) => {
+                error!("[{}] TTS generation failed: {}", request_id, e);
+                let error = TtsError {
+                    error: TtsErrorDetail {
+                        message: format!("TTS generation failed: {}", e),
+                        type_: "internal_server_error".to_string(),
+                        code: Some("tts_generation_failed".to_string()),
+                    },
+                };
+                return Ok((StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response());
+            }
         }
     };
 
     // Convert WAV data to bytes
     let mut wav_buffer = Vec::new();
-    if let Err(e) = crate::helper::write_wav_to_buffer(&mut wav_buffer, &wav_data, text_to_speech.sample_rate) {
+    if let Err(e) = crate::helper::write_wav_to_buffer(&mut wav_buffer, &wav_data, sample_rate as i32) {
         error!("[{}] Failed to encode WAV: {}", request_id, e);
         let error = TtsError {
             error: TtsErrorDetail {
@@ -575,10 +658,6 @@ pub async fn tts_speech(
     Ok(response)
 }
 
-// ============================================================================
-// Server Setup and Management
-// ============================================================================
-
 pub fn create_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health_check))
@@ -596,18 +675,47 @@ pub async fn start_server(config: ServerConfig) -> Result<()> {
     let listener = TcpListener::bind(&bind_addr).await
         .map_err(|e| anyhow!("Failed to bind to {}: {}", bind_addr, e))?;
 
+    // Initialize engine pool if configured
+    let engine_pool = if config.tts.engine_pool_size > 1 {
+        info!("Initializing TTS engine pool with size {}", config.tts.engine_pool_size);
+
+        let pool_config = crate::engine_pool::EnginePoolConfig {
+            engine_pool_size: config.tts.engine_pool_size,
+            warmup_on_startup: config.tts.warmup_on_startup,
+            engine_checkout_timeout_ms: config.tts.engine_checkout_timeout_ms,
+            voice_style_cache_size: config.tts.voice_style_cache_size,
+            onnx_dir: config.tts.onnx_dir.clone(),
+            use_gpu: config.tts.use_gpu,
+        };
+
+        match crate::engine_pool::TTSEnginePool::new(pool_config).await {
+            Ok(pool) => {
+                info!("Engine pool initialized successfully");
+                Some(Arc::new(pool))
+            }
+            Err(e) => {
+                warn!("Failed to initialize engine pool: {}. Using fallback single engine.", e);
+                None
+            }
+        }
+    } else {
+        info!("Engine pool disabled (size <= 1), using single engine mode");
+        None
+    };
+
     // Initialize application state
     let state = AppState {
         default_voice_style: config.tts.default_voice_style.clone(),
         config: config.clone(),
-        text_to_speech: Arc::new(Mutex::new(None)),
+        text_to_speech: Arc::new(Mutex::new(None)), // Kept for backward compatibility
+        engine_pool,
     };
 
     let router = create_router(state);
 
     info!("Starting superTTS API server on {}", bind_addr);
     info!("Available endpoints:");
-    info!("  GET  /health - Health check");
+    info!("  GET  /health - Health check (includes pool stats if pool is enabled)");
     info!("  GET  /voices - List available voice styles");
     info!("  POST /v1/audio/speech - OpenAI compatible TTS endpoint");
 
