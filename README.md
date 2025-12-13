@@ -1,8 +1,24 @@
-# Supertonic TTS ONNX Inference Openai Speech REST API
+# SuperTTS
 
-This guide provides api server for running TTS inference using Rust.
+<div align="center">
 
-## 📰 Update News
+![Rust](https://img.shields.io/badge/rust-1.84+-orange.svg)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Crates.io](https://img.shields.io/crates/v/supertonic-tts.svg)](https://crates.io/crates/supertts)
+
+**High Performance · Rust-based Text-to-Speech Service**
+
+Fast ONNX inference with OpenAI-compatible API, engine pooling, and multiple voice styles.
+
+[Features](#-update-news) • [Quick Start](#-installation) • [CLI Tool](#-basic-usage) • [API Service](#-api-server-mode) • [Performance](#-performance-report)
+
+</div>
+
+## 📖 Overview
+
+This guide provides an API server for running TTS inference using Rust with exceptional performance and OpenAI API compatibility.
+
+## ✨ Update News
 
 **2025.12.13** - Implemented TTS engine pool for improved performance and concurrent request handling. Added configurable pool size, engine warmup, and voice style caching.[complete performance report](docs/performance_report.md)
 
