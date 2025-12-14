@@ -1,0 +1,69 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Rust artifacts
+target/
+**/*.rs.bk
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+temp/
+
+# Cache
+.cache/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+*.yml
+!docker-compose.yml
+
+# Docker
+Dockerfile*
+.dockerignore
+docker-compose*
+
+# Test
+tests/
+*_test.rs
+
+# Node.js (if any)
+node_modules/
+npm-debug.log*
+
+# Python (if any)
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv
+
+# Build artifacts
+build/
+dist/
+*.tgz
+*.tar.gz
+
+# Local development
+.env.local
+.env.*.local

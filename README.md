@@ -30,6 +30,22 @@ This guide provides an API server for running TTS inference using Rust with exce
 
 ---
 
+## Quick Start
+
+### docker build and run 
+```bash
+# Build the image
+./build.sh
+
+# Run the container
+docker run -d -p 8080:8080 --name supertts supertts:latest
+
+# Run with docker-compose
+docker-compose up
+
+```
+---
+
 ## 🚀 Installation
 
 This project uses [Cargo](https://doc.rust-lang.org/cargo/) for package management.

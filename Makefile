@@ -1,41 +1,38 @@
 # Makefile for superTTS
+.PHONY: build build-server build-docker build-cli download run run-docker clean deps test fmt check help
 
-.PHONY: build build-server build-cli download clean deps test fmt check help
-
-# Default target
 build: build-server
 
-# Build server version with release optimization
 build-server:
 	cargo build --release
 
-# Build CLI version (debug build)
 build-cli:
 	cargo build --release
 
-# Download model assets
+build-docker:
+	sh ./build.sh
+
 download:
 	git clone https://hf-mirror.com/Supertone/supertonic assets
 
 run:
 	target/release/supertts --openai --config config.json
-# Clean build artifacts
+
+run-docker:
+	docker-compose up
+
 clean:
 	cargo clean
 
-# Install dependencies
 deps:
 	cargo fetch
 
-# Run tests
 test:
 	cargo test
 
-# Format code
 fmt:
 	cargo fmt
 
-# Check code without building
 check:
 	cargo check
 
@@ -43,9 +40,12 @@ check:
 help:
 	@echo "Available targets:"
 	@echo "  build        - Build the server version (default)"
+	@echo "  build-docker - Build docker image"
 	@echo "  build-server - Build server version with --features server --release"
 	@echo "  build-cli    - Build CLI version (debug build)"
 	@echo "  download     - Download model assets from hf-mirror.com"
+	@echo "  run          - Run server"
+	@echo "  run-docker   - Run server in docker"
 	@echo "  clean        - Clean build artifacts"
 	@echo "  deps         - Install dependencies"
 	@echo "  test         - Run tests"
