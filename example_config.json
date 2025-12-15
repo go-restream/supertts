@@ -19,6 +19,7 @@
     "api_key": null
   },
   "logging": {
-    "level": "info"
+    "level": "info",
+    "ort_level": "warn"
   }
 }

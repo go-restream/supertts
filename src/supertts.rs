@@ -1,7 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use tracing_subscriber::{Layer};
-use tracing_subscriber::{filter::filter_fn,prelude::*};
+use tracing_subscriber::{prelude::*};
 use std::path::PathBuf;
 use std::fs;
 use std::mem;
@@ -81,22 +80,6 @@ async fn main() -> Result<()> {
     if args.openai {
         println!("Starting OpenAI-compatible API server mode...");
 
-        let filter = filter_fn(|metadata| {
-            if metadata.target() == "ort::logging" {
-                return metadata.level() <= &tracing::Level::WARN;
-            }
-            metadata.level() <= &tracing::Level::INFO
-        });
-
-        tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::fmt::layer()
-            .with_writer(std::io::stdout)
-            .with_ansi(true)
-            .with_filter(filter)
-        )
-        .init();
-
         // Load configuration
         let mut server_config = ServerConfig::load_or_default(&args.config);
 
@@ -119,6 +102,13 @@ async fn main() -> Result<()> {
         if let Some(speed) = args.speed {
             server_config.tts.speed = speed;
         }
+
+        let log_filter = format!("{},ort={}", server_config.logging.level, server_config.logging.ort_level);
+
+        tracing_subscriber::registry()
+		.with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| log_filter.into()))
+		.with(tracing_subscriber::fmt::layer())
+		.init();
 
         info!("Server configuration loaded: {:?}", server_config);
 

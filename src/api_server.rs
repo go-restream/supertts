@@ -59,6 +59,7 @@ pub struct AuthSettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoggingSettings {
     pub level: String,
+    pub ort_level: String,
 }
 
 // Default value functions for serde
@@ -91,6 +92,7 @@ impl Default for ServerConfig {
             },
             logging: LoggingSettings {
                 level: "info".to_string(),
+                ort_level: "warn".to_string(),
             },
         }
     }
